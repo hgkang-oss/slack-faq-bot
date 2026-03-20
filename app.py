@@ -1,6 +1,7 @@
-import os
 import csv
 import io
+import os
+import re
 import requests
 from slack_bolt import App
 from slack_bolt.adapter.socket_mode import SocketModeHandler
@@ -14,6 +15,7 @@ FALLBACK_GROUP_ID = os.environ["FALLBACK_GROUP_ID"]
 CSV_URL = f"https://docs.google.com/spreadsheets/d/{GOOGLE_SHEET_ID}/export?format=csv&gid=0"
 
 app = App(token=SLACK_BOT_TOKEN)
+
 
 def load_faq():
     response = requests.get(CSV_URL, timeout=10)
@@ -29,6 +31,7 @@ def load_faq():
             (row.get("keywords3") or "").strip(),
         ]
         keywords = [k for k in keywords if k]
+
         answer = (row.get("answer") or "").strip()
 
         if keywords and answer:
@@ -39,8 +42,14 @@ def load_faq():
 
     return faq_list
 
+
+def clean_mention(text):
+    return re.sub(r"<@[^>]+>", "", text).strip()
+
+
 def match_faq(text, faq_list):
     text = (text or "").strip()
+
     best_answer = None
     best_score = 0
 
@@ -56,19 +65,14 @@ def match_faq(text, faq_list):
 
     if best_score >= 2:
         return best_answer
+
     return None
 
-@app.event("message")
-def handle_message_events(client, event, logger):
-    try:
-        if event.get("channel") != TARGET_CHANNEL_ID:
-            return
-        if event.get("bot_id"):
-            return
-        if event.get("subtype"):
-            return
 
-        text = event.get("text", "")
+@app.event("app_mention")
+def handle_mention(client, event, logger):
+    try:
+        text = clean_mention(event.get("text", ""))
         if not text:
             return
 
@@ -90,8 +94,10 @@ def handle_message_events(client, event, logger):
                     f"<!subteam^{FALLBACK_GROUP_ID}> 확인 부탁드립니다 🙏"
                 )
             )
+
     except Exception as e:
-        logger.exception(f"Error handling message: {e}")
+        logger.exception(f"Error handling mention: {e}")
+
 
 if __name__ == "__main__":
     handler = SocketModeHandler(app, SLACK_APP_TOKEN)
